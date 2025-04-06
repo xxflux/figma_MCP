@@ -1,0 +1,26 @@
+{
+  "name": "figma-mcp-server",
+  "module": "index.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run index.js"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/cors": "^2.8.17",
+    "@types/ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "hono": "^4.7.5",
+    "node-fetch": "^3.3.2",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.1"
+  }
+}

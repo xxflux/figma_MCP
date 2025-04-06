@@ -1,0 +1,9 @@
+{
+  "name": "figma-mcp",
+  "version": "1.0.0",
+  "description": "Figma MCP Root Project",
+  "private": true,
+  "scripts": {
+    "start": "cd figma-mcp-server && npm start"
+  }
+} 

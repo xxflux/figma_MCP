@@ -1,0 +1,17 @@
+{
+  "name": "figma-mcp-plugin",
+  "version": "1.0.0",
+  "description": "Figma Plugin for MCP Integration",
+  "main": "dist/code.js",
+  "scripts": {
+    "build": "rm -rf dist && mkdir -p dist && cp code/ui.html dist/ && tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.109.0",
+    "typescript": "^5.0.0"
+  }
+}
