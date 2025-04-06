@@ -2,6 +2,9 @@
 
 A complete solution for creating and modifying Figma designs through Cursor Agent using the Model Context Protocol.
 
+Blog: [https://xflux.us/2025/04/06/ai-powered-design-automation-building-a-figma-mcp-with-cursor/](https://xflux.us/2025/04/06/ai-powered-design-automation-building-a-figma-mcp-with-cursor/)
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/FdjjRR0h5l4/0.jpg)](https://www.youtube.com/watch?v=FdjjRR0h5l4)
+
 ## Overview
 
 This project enables AI-powered design creation in Figma using natural language prompts through Cursor Agent. It consists of two main components:
