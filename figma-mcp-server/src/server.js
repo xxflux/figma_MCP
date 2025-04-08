@@ -16,9 +16,36 @@ import { v4 as uuidv4 } from 'uuid';
 import WebSocket from 'ws';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get current directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
+
+// Lucide icons support
+const LUCIDE_ICONS = {
+  // Common icons
+  'activity': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-activity"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+  'alert-circle': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-alert-circle"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>',
+  'archive': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-archive"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
+  'arrow-right': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+  'check': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>',
+  'clipboard': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clipboard"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>',
+  'clock': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  'file-text': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>',
+  'heart': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-heart"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>',
+  'home': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+  'mail': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mail"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>',
+  'settings': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+  'user': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+};
+
+// You can add more icons here or load them dynamically from the Lucide library
 
 const app = express();
 const port = 3000;
@@ -634,9 +661,177 @@ app.post("/message", async (req, res) => {
                                 },
                                 required: ["position"]
                             }
+                        },
+                        {
+                            name: "figma.createIcon",
+                            description: "Create a Lucide icon in Figma",
+                            inputSchema: {
+                                type: "object",
+                                properties: {
+                                    iconName: {
+                                        type: "string",
+                                        description: "Name of the Lucide icon to create (e.g., 'heart', 'home', 'settings')"
+                                    },
+                                    position: {
+                                        type: "object",
+                                        description: "Position coordinates",
+                                        properties: {
+                                            x: { type: "number" },
+                                            y: { type: "number" }
+                                        },
+                                        required: ["x", "y"]
+                                    },
+                                    size: {
+                                        type: "number",
+                                        description: "Icon size in pixels (default: 24)"
+                                    },
+                                    color: {
+                                        type: "object",
+                                        description: "Icon color in RGB (values from 0-1)",
+                                        properties: {
+                                            r: { type: "number" },
+                                            g: { type: "number" },
+                                            b: { type: "number" }
+                                        }
+                                    },
+                                    strokeWidth: {
+                                        type: "number",
+                                        description: "Icon stroke width (default: 2)"
+                                    }
+                                },
+                                required: ["iconName", "position"]
+                            }
+                        },
+                        {
+                            name: "figma.createBorderBox",
+                            description: "Create a border line box or button in Figma",
+                            inputSchema: {
+                                type: "object",
+                                properties: {
+                                    position: {
+                                        type: "object",
+                                        description: "Position coordinates",
+                                        properties: {
+                                            x: { type: "number" },
+                                            y: { type: "number" }
+                                        },
+                                        required: ["x", "y"]
+                                    },
+                                    size: {
+                                        type: "object",
+                                        description: "Size dimensions",
+                                        properties: {
+                                            width: { type: "number" },
+                                            height: { type: "number" }
+                                        },
+                                        required: ["width", "height"]
+                                    },
+                                    options: {
+                                        type: "object",
+                                        description: "Box/button styling options",
+                                        properties: {
+                                            type: {
+                                                type: "string",
+                                                description: "Type of element to create ('box' or 'button')",
+                                                enum: ["box", "button"]
+                                            },
+                                            borderColor: {
+                                                type: "object",
+                                                description: "Border color in RGB (values from 0-1)",
+                                                properties: {
+                                                    r: { type: "number" },
+                                                    g: { type: "number" },
+                                                    b: { type: "number" }
+                                                }
+                                            },
+                                            borderWidth: {
+                                                type: "number",
+                                                description: "Border width in pixels (default: 1)"
+                                            },
+                                            fillColor: {
+                                                type: "object",
+                                                description: "Fill color in RGB (values from 0-1)",
+                                                properties: {
+                                                    r: { type: "number" },
+                                                    g: { type: "number" },
+                                                    b: { type: "number" }
+                                                }
+                                            },
+                                            cornerRadius: {
+                                                type: "number",
+                                                description: "Corner radius in pixels"
+                                            },
+                                            text: {
+                                                type: "string",
+                                                description: "Text to display inside the box/button"
+                                            },
+                                            textColor: {
+                                                type: "object",
+                                                description: "Text color in RGB (values from 0-1)",
+                                                properties: {
+                                                    r: { type: "number" },
+                                                    g: { type: "number" },
+                                                    b: { type: "number" }
+                                                }
+                                            },
+                                            fontSize: {
+                                                type: "number",
+                                                description: "Text font size in pixels (default: 16)"
+                                            },
+                                            fontFamily: {
+                                                type: "string",
+                                                description: "Text font family (default: Inter)"
+                                            }
+                                        },
+                                        required: ["type"]
+                                    }
+                                },
+                                required: ["position", "size", "options"]
+                            }
+                        },
+                        {
+                            name: "figma.drawLine",
+                            description: "Draw a line in Figma",
+                            inputSchema: {
+                                type: "object",
+                                properties: {
+                                    start: {
+                                        type: "object",
+                                        description: "Starting position coordinates",
+                                        properties: {
+                                            x: { type: "number" },
+                                            y: { type: "number" }
+                                        },
+                                        required: ["x", "y"]
+                                    },
+                                    end: {
+                                        type: "object",
+                                        description: "Ending position coordinates",
+                                        properties: {
+                                            x: { type: "number" },
+                                            y: { type: "number" }
+                                        },
+                                        required: ["x", "y"]
+                                    },
+                                    color: {
+                                        type: "object",
+                                        description: "Line color in RGB (values from 0-1, default: black)",
+                                        properties: {
+                                            r: { type: "number" },
+                                            g: { type: "number" },
+                                            b: { type: "number" }
+                                        }
+                                    },
+                                    thickness: {
+                                        type: "number",
+                                        description: "Line thickness in pixels (default: 1)"
+                                    }
+                                },
+                                required: ["start", "end"]
+                            }
                         }
                     ],
-                    count: 18
+                    count: 19
                 }
             };
             sseRes.write(`event: message\n`);
@@ -944,7 +1139,7 @@ app.post("/message", async (req, res) => {
                 const ws = Array.from(figmaClients.values())[0];
                 if (ws) {
                     ws.once('message', handlePluginResponse);
-                } else {
+            } else {
                     clearTimeout(timeout);
                     const noConnectionMsg = {
                         jsonrpc: "2.0",
@@ -1446,14 +1641,15 @@ app.post("/message", async (req, res) => {
                 }
             }
             else if (toolName === "figma.moveNode") {
-                if (!args.position || typeof args.position.x !== 'number' || typeof args.position.y !== 'number') {
+                // Use WebSocket to send operation to plugin
+                if (!args.position) {
                     const errorMsg = {
                         jsonrpc: "2.0",
                         id: rpc.id,
                         error: {
                             code: -32602,
                             message: "Invalid params",
-                            data: "Position must include valid x and y coordinates"
+                            data: "Missing position parameter"
                         }
                     };
                     sseRes.write(`event: message\n`);
@@ -1461,34 +1657,29 @@ app.post("/message", async (req, res) => {
                     return;
                 }
                 
-                // Send operation to plugin
-                sendOperationToPlugin({
-                    type: 'move-node',
-                    position: args.position,
-                    nodeId: args.nodeId || null
-                });
-                
-                // Set up a timeout to handle the response
+                // Create a timeout to handle possible failures
                 const timeout = setTimeout(() => {
-                    const timeoutMsg = {
+                    const errorMsg = {
                         jsonrpc: "2.0",
                         id: rpc.id,
                         error: {
                             code: -32603,
                             message: "Operation timeout",
-                            data: "Move node operation timed out. The plugin might be disconnected."
+                            data: "The operation timed out. The plugin might be disconnected."
                         }
                     };
                     sseRes.write(`event: message\n`);
-                    sseRes.write(`data: ${JSON.stringify(timeoutMsg)}\n\n`);
-                }, 5000); // 5 second timeout
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                }, 5000);
                 
-                // Listen for operation completion or error
-                const handlePluginResponse = (message) => {
+                // Set up message listener for operation completion or error
+                const handleMovedNodes = (clientId, ws, message) => {
                     try {
-                        const data = JSON.parse(message);
-                        if (data.type === 'operation-completed' && data.originalOperation === 'move-node') {
+                        const data = JSON.parse(message.toString());
+                        
+                        if (data.type === 'nodes-moved') {
                             clearTimeout(timeout);
+                            
                             const callMsg = {
                                 jsonrpc: "2.0",
                                 id: rpc.id,
@@ -1496,83 +1687,384 @@ app.post("/message", async (req, res) => {
                                     content: [
                                         {
                                             type: "text",
-                                            text: `Successfully moved ${args.nodeId ? `node: ${args.nodeId}` : 'selected nodes'} to position (${args.position.x}, ${args.position.y})`
+                                            text: `Moved ${data.count} node(s) to position (${args.position.x}, ${args.position.y})`
                                         }
                                     ]
                                 }
                             };
                             sseRes.write(`event: message\n`);
                             sseRes.write(`data: ${JSON.stringify(callMsg)}\n\n`);
-                            console.log("[MCP] SSE => event: message => figma.moveNode success");
-                        } else if (data.type === 'nodes-moved') {
+                            ws.removeListener('message', handleMovedNodes.bind(null, clientId, ws));
+                        } 
+                        else if (data.type === 'operation-error' && data.originalOperation === 'move-node') {
                             clearTimeout(timeout);
-                            const callMsg = {
-                                jsonrpc: "2.0",
-                                id: rpc.id,
-                                result: {
-                                    content: [
-                                        {
-                                            type: "text",
-                                            text: `Successfully moved ${data.count} node(s) to position (${args.position.x}, ${args.position.y})`
-                                        }
-                                    ]
-                                }
-                            };
-                            sseRes.write(`event: message\n`);
-                            sseRes.write(`data: ${JSON.stringify(callMsg)}\n\n`);
-                            console.log("[MCP] SSE => event: message => figma.moveNode success");
-                        } else if (data.type === 'operation-error' && data.originalOperation === 'move-node') {
-                            clearTimeout(timeout);
+                            
                             const errorMsg = {
                                 jsonrpc: "2.0",
                                 id: rpc.id,
                                 error: {
                                     code: -32603,
-                                    message: "Operation failed",
-                                    data: data.error || "Failed to move node(s)"
+                                    message: "Operation error",
+                                    data: data.error
                                 }
                             };
                             sseRes.write(`event: message\n`);
                             sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
-                            console.log("[MCP] SSE => event: message => figma.moveNode error:", data.error);
+                            ws.removeListener('message', handleMovedNodes.bind(null, clientId, ws));
+                        }
+                        else if (data.type === 'operation-completed' && data.originalOperation === 'move-node') {
+                            clearTimeout(timeout);
+                            
+                            const callMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                result: {
+                                    content: [
+                                        {
+                                            type: "text",
+                                            text: `Successfully moved node(s) to position (${args.position.x}, ${args.position.y})`
+                                        }
+                                    ]
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(callMsg)}\n\n`);
+                            ws.removeListener('message', handleMovedNodes.bind(null, clientId, ws));
                         }
                     } catch (error) {
-                        console.error('Error handling plugin response:', error);
+                        console.error(`Error parsing WebSocket message:`, error);
                     }
                 };
                 
-                // Add one-time listener for the next plugin response
-                const ws = Array.from(figmaClients.values())[0];
-                if (ws) {
-                    ws.once('message', handlePluginResponse);
-                } else {
-                    clearTimeout(timeout);
-                    const noConnectionMsg = {
+                // Add temporary message handler for each client
+                for (const [clientId, ws] of figmaClients.entries()) {
+                    ws.on('message', handleMovedNodes.bind(null, clientId, ws));
+                }
+                
+                sendOperationToPlugin({
+                    type: 'move-node',
+                    position: args.position,
+                    nodeId: args.nodeId
+                });
+                
+                // We don't send a response here as it will be sent by the message handler
+            }
+            else if (toolName === "figma.createIcon") {
+                // Use WebSocket to send operation to plugin
+                if (!args.iconName || !args.position) {
+                    const errorMsg = {
+                        jsonrpc: "2.0",
+                        id: rpc.id,
+                        error: {
+                            code: -32602,
+                            message: "Invalid params",
+                            data: "Missing iconName or position parameters"
+                        }
+                    };
+                    sseRes.write(`event: message\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                    return;
+                }
+                
+                // Check if the icon exists
+                if (!LUCIDE_ICONS[args.iconName]) {
+                    const errorMsg = {
+                        jsonrpc: "2.0",
+                        id: rpc.id,
+                        error: {
+                            code: -32602,
+                            message: "Invalid params",
+                            data: `Icon '${args.iconName}' not found in Lucide icon set`
+                        }
+                    };
+                    sseRes.write(`event: message\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                    return;
+                }
+                
+                // Create a timeout to handle possible failures
+                const timeout = setTimeout(() => {
+                    const errorMsg = {
                         jsonrpc: "2.0",
                         id: rpc.id,
                         error: {
                             code: -32603,
-                            message: "No Figma connection",
-                            data: "No Figma plugin connection available. Make sure the Figma plugin is running and connected."
+                            message: "Operation timeout",
+                            data: "The operation timed out. The plugin might be disconnected."
                         }
                     };
                     sseRes.write(`event: message\n`);
-                    sseRes.write(`data: ${JSON.stringify(noConnectionMsg)}\n\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                }, 5000);
+                
+                // Set up message listener for operation completion or error
+                const handleIconCreation = (clientId, ws, message) => {
+                    try {
+                        const data = JSON.parse(message.toString());
+                        
+                        if (data.type === 'operation-completed' && data.originalOperation === 'create-icon') {
+                            clearTimeout(timeout);
+                            
+                            const callMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                result: {
+                                    content: [
+                                        {
+                                            type: "text",
+                                            text: `Successfully created '${args.iconName}' icon (ID: ${data.data?.nodeId || 'unknown'})`
+                                        }
+                                    ]
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(callMsg)}\n\n`);
+                            ws.removeListener('message', handleIconCreation.bind(null, clientId, ws));
+                        } 
+                        else if (data.type === 'operation-error' && data.originalOperation === 'create-icon') {
+                            clearTimeout(timeout);
+                            
+                            const errorMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                error: {
+                                    code: -32603,
+                                    message: "Operation error",
+                                    data: data.error
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                            ws.removeListener('message', handleIconCreation.bind(null, clientId, ws));
+                        }
+                    } catch (error) {
+                        console.error(`Error parsing WebSocket message:`, error);
+                    }
+                };
+                
+                // Add temporary message handler for each client
+                for (const [clientId, ws] of figmaClients.entries()) {
+                    ws.on('message', handleIconCreation.bind(null, clientId, ws));
                 }
+                
+                // Send the operation to the plugin with the SVG data
+                sendOperationToPlugin({
+                    type: 'create-icon',
+                    iconName: args.iconName,
+                    svgData: LUCIDE_ICONS[args.iconName],
+                    position: args.position,
+                    size: args.size || 24,
+                    color: args.color || { r: 0, g: 0, b: 0 },
+                    strokeWidth: args.strokeWidth || 2
+                });
+                
+                // We don't send a response here as it will be sent by the message handler
+            }
+            else if (toolName === "figma.createBorderBox") {
+                // Use WebSocket to send operation to plugin
+                if (!args.position || !args.size || !args.options) {
+                    const errorMsg = {
+                        jsonrpc: "2.0",
+                        id: rpc.id,
+                        error: {
+                            code: -32602,
+                            message: "Invalid params",
+                            data: "Missing position, size, or options parameters"
+                        }
+                    };
+                    sseRes.write(`event: message\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                    return;
+                }
+                
+                // Create a timeout to handle possible failures
+                const timeout = setTimeout(() => {
+                    const errorMsg = {
+                        jsonrpc: "2.0",
+                        id: rpc.id,
+                        error: {
+                            code: -32603,
+                            message: "Operation timeout",
+                            data: "The operation timed out. The plugin might be disconnected."
+                        }
+                    };
+                    sseRes.write(`event: message\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                }, 5000);
+                
+                // Set up message listener for operation completion or error
+                const handleBorderBoxCreation = (clientId, ws, message) => {
+                    try {
+                        const data = JSON.parse(message.toString());
+                        
+                        if (data.type === 'operation-completed' && data.originalOperation === 'create-border-box') {
+                            clearTimeout(timeout);
+                            
+                            const callMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                result: {
+                                    content: [
+                                        {
+                                            type: "text",
+                                            text: `Successfully created border box (ID: ${data.data?.nodeId || 'unknown'})`
+                                        }
+                                    ]
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(callMsg)}\n\n`);
+                            ws.removeListener('message', handleBorderBoxCreation.bind(null, clientId, ws));
+                        } 
+                        else if (data.type === 'operation-error' && data.originalOperation === 'create-border-box') {
+                            clearTimeout(timeout);
+                            
+                            const errorMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                error: {
+                                    code: -32603,
+                                    message: "Operation error",
+                                    data: data.error
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                            ws.removeListener('message', handleBorderBoxCreation.bind(null, clientId, ws));
+                        }
+                    } catch (error) {
+                        console.error(`Error parsing WebSocket message:`, error);
+                    }
+                };
+                
+                // Add temporary message handler for each client
+                for (const [clientId, ws] of figmaClients.entries()) {
+                    ws.on('message', handleBorderBoxCreation.bind(null, clientId, ws));
+                }
+                
+                // Send the operation to the plugin with the styling options
+                sendOperationToPlugin({
+                    type: 'create-border-box',
+                    position: args.position,
+                    size: args.size,
+                    options: args.options
+                });
+                
+                // We don't send a response here as it will be sent by the message handler
+            }
+            else if (toolName === "figma.drawLine") {
+                // Use WebSocket to send operation to plugin
+                if (!args.start || !args.end) {
+                    const errorMsg = {
+                        jsonrpc: "2.0",
+                        id: rpc.id,
+                        error: {
+                            code: -32602,
+                            message: "Invalid params",
+                            data: "Missing start or end parameters"
+                        }
+                    };
+                    sseRes.write(`event: message\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                    return;
+                }
+                
+                // Create a timeout to handle possible failures
+                const timeout = setTimeout(() => {
+                    const errorMsg = {
+                        jsonrpc: "2.0",
+                        id: rpc.id,
+                        error: {
+                            code: -32603,
+                            message: "Operation timeout",
+                            data: "The operation timed out. The plugin might be disconnected."
+                        }
+                    };
+                    sseRes.write(`event: message\n`);
+                    sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                    // Ensure the listener is removed on timeout
+                    for (const [clientId, ws] of figmaClients.entries()) {
+                        ws.removeListener('message', handleLineDrawing.bind(null, clientId, ws));
+                    }
+                }, 5000); // 5 second timeout
+                
+                // Set up message listener for operation completion or error
+                const handleLineDrawing = (clientId, ws, message) => {
+                    try {
+                        const data = JSON.parse(message.toString());
+                        
+                        if (data.type === 'operation-completed' && data.originalOperation === 'draw-line') {
+                            clearTimeout(timeout);
+                            
+                            const callMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                result: {
+                                    content: [
+                                        {
+                                            type: "text",
+                                            text: `Successfully drew line (ID: ${data.data?.nodeId || 'unknown'}) from (${args.start.x}, ${args.start.y}) to (${args.end.x}, ${args.end.y})`
+                                        }
+                                    ]
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(callMsg)}\n\n`);
+                            ws.removeListener('message', handleLineDrawing.bind(null, clientId, ws));
+                        } 
+                        else if (data.type === 'operation-error' && data.originalOperation === 'draw-line') {
+                            clearTimeout(timeout);
+                            
+                            const errorMsg = {
+                                jsonrpc: "2.0",
+                                id: rpc.id,
+                                error: {
+                                    code: -32603,
+                                    message: "Operation error drawing line",
+                                    data: data.error
+                                }
+                            };
+                            sseRes.write(`event: message\n`);
+                            sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
+                            ws.removeListener('message', handleLineDrawing.bind(null, clientId, ws));
+                        }
+                    } catch (error) {
+                        console.error(`Error parsing WebSocket message during line drawing:`, error);
+                         // Clear timeout and remove listener in case of parsing error
+                         clearTimeout(timeout);
+                         ws.removeListener('message', handleLineDrawing.bind(null, clientId, ws));
+                    }
+                };
+                
+                // Add temporary message handler for each client
+                for (const [clientId, ws] of figmaClients.entries()) {
+                    ws.on('message', handleLineDrawing.bind(null, clientId, ws));
+                }
+                
+                // Send the operation to the plugin
+                sendOperationToPlugin({
+                    type: 'draw-line',
+                    start: args.start,
+                    end: args.end,
+                    color: args.color, // Pass color directly, plugin handles default
+                    thickness: args.thickness // Pass thickness directly, plugin handles default
+                });
+                
+                // We don't send a response here as it will be sent by the message handler
             }
             else {
-                // unknown tool
-                const callErr = {
+                // Unknown tool
+                const errorMsg = {
                     jsonrpc: "2.0",
                     id: rpc.id,
                     error: {
                         code: -32601,
-                        message: `No such tool '${toolName}'`
+                        message: "Method not found",
+                        data: `Tool '${toolName}' not implemented`
                     }
                 };
                 sseRes.write(`event: message\n`);
-                sseRes.write(`data: ${JSON.stringify(callErr)}\n\n`);
-                console.log("[MCP] SSE => event: message => unknown tool call");
+                sseRes.write(`data: ${JSON.stringify(errorMsg)}\n\n`);
             }
             return;
         }

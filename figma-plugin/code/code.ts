@@ -106,10 +106,109 @@ figma.ui.onmessage = async (msg) => {
         await moveNode(msg.position, msg.nodeId);
         break;
         
+      case 'create-icon': {
+        try {
+          console.log("Creating icon:", msg.iconName, "at position:", msg.position);
+          
+          const iconId = await createIcon(
+            msg.iconName,
+            msg.svgData,
+            msg.position,
+            msg.size || 24,
+            msg.color,
+            msg.strokeWidth || 2
+          );
+          
+          figma.ui.postMessage({ 
+            type: 'operation-completed', 
+            status: 'success',
+            originalOperation: 'create-icon',
+            data: { nodeId: iconId, iconName: msg.iconName }
+          });
+          
+          // We return here to prevent the generic operation-completed message below
+          return;
+        } catch (error) {
+          console.error("Error creating icon:", error);
+          figma.ui.postMessage({ 
+            type: 'operation-error', 
+            originalOperation: 'create-icon',
+            error: error instanceof Error ? error.message : String(error)
+          });
+          
+          // We return here to prevent the generic operation-completed message below
+          return;
+        }
+      }
+      
+      case 'create-border-box': {
+        try {
+          console.log("Creating border box:", msg.options?.type, "at position:", msg.position);
+          
+          const boxId = await createBorderBox(
+            msg.position,
+            msg.size,
+            msg.options
+          );
+          
+          figma.ui.postMessage({ 
+            type: 'operation-completed', 
+            status: 'success',
+            originalOperation: 'create-border-box',
+            data: { nodeId: boxId, type: msg.options?.type }
+          });
+          
+          // We return here to prevent the generic operation-completed message below
+          return;
+        } catch (error) {
+          console.error("Error creating border box:", error);
+          figma.ui.postMessage({ 
+            type: 'operation-error', 
+            originalOperation: 'create-border-box',
+            error: error instanceof Error ? error.message : String(error)
+          });
+          
+          // We return here to prevent the generic operation-completed message below
+          return;
+        }
+      }
+        
       case 'connection-status':
         // Log connection status changes
         console.log(`WebSocket connection status: ${msg.status}`);
         break;
+        
+      case 'draw-line': {
+        try {
+          console.log("Drawing line from:", msg.start, "to:", msg.end);
+          const lineId = await drawLine(
+            msg.start,
+            msg.end,
+            msg.color,
+            msg.thickness || 1
+          );
+          
+          figma.ui.postMessage({ 
+            type: 'operation-completed', 
+            status: 'success',
+            originalOperation: 'draw-line',
+            data: { nodeId: lineId }
+          });
+          
+          // Return to prevent generic message
+          return;
+        } catch (error) {
+          console.error("Error drawing line:", error);
+          figma.ui.postMessage({ 
+            type: 'operation-error', 
+            originalOperation: 'draw-line',
+            error: error instanceof Error ? error.message : String(error)
+          });
+          
+          // Return to prevent generic message
+          return;
+        }
+      }
         
       default:
         console.error(`Unknown operation type: ${msg.type}`);
@@ -1012,4 +1111,246 @@ async function moveNode(position: {x: number, y: number}, nodeId?: string): Prom
     })),
     originalPositions
   });
+}
+
+// Function to create an icon from Lucide Icons
+async function createIcon(
+  iconName: string,
+  svgData: string,
+  position: {x: number, y: number},
+  size: number = 24,
+  color?: {r: number, g: number, b: number},
+  strokeWidth: number = 2
+): Promise<string> {
+  try {
+    console.log(`Creating icon: ${iconName}`);
+    
+    if (!svgData) {
+      throw new Error(`Missing SVG data for icon: ${iconName}`);
+    }
+    
+    // Create a node from the SVG string
+    const svgNode = figma.createNodeFromSvg(svgData);
+    
+    // Create a frame to group the SVG elements
+    const frame = figma.createFrame();
+    frame.name = `Lucide Icon: ${iconName}`;
+    frame.x = position.x;
+    frame.y = position.y;
+    frame.fills = []; // Make the frame background transparent
+    
+    // Calculate sizing for the outer frame
+    const aspectRatio = svgNode.width / svgNode.height;
+    let frameWidth, frameHeight;
+    
+    if (aspectRatio >= 1) {
+      frameWidth = size;
+      frameHeight = size / aspectRatio;
+    } else {
+      frameWidth = size * aspectRatio;
+      frameHeight = size;
+    }
+    
+    // Resize the frame
+    frame.resize(frameWidth, frameHeight);
+    
+    // Move the SVG elements into the frame
+    const svgElements = [...svgNode.children]; // Make a copy of the children
+    
+    // Process all SVG elements before adding to the frame
+    for (const element of svgElements) {
+      // Detach from original SVG node and add to our frame
+      frame.appendChild(element);
+      
+      // Apply color if provided
+      if (color && 'strokes' in element) {
+        const rgbColor = { r: color.r, g: color.g, b: color.b };
+        const strokePaint: SolidPaint = { type: 'SOLID', color: rgbColor };
+        element.strokes = [strokePaint];
+        
+        // Set stroke width if the element has strokes
+        if ('strokeWeight' in element) {
+          element.strokeWeight = strokeWidth;
+        }
+      }
+    }
+    
+    // Clean up the original SVG node since we've moved all its children
+    svgNode.remove();
+
+    // Group the elements within the frame
+    if (svgElements.length > 0) {
+        const group = figma.group(svgElements, frame);
+        group.name = "IconContent"; // Name the group for clarity
+
+        // Calculate target size (90% of frame)
+        const targetWidth = frame.width * 0.9;
+        const targetHeight = frame.height * 0.9;
+
+        // Calculate scale factor to fit within target size, maintaining aspect ratio
+        const groupWidth = group.width;
+        const groupHeight = group.height;
+
+        if (groupWidth > 0 && groupHeight > 0) {
+            const scaleX = targetWidth / groupWidth;
+            const scaleY = targetHeight / groupHeight;
+            const scale = Math.min(scaleX, scaleY);
+
+            // Resize the group
+            group.resize(groupWidth * scale, groupHeight * scale);
+
+            // Center the resized group within the frame
+            group.x = (frame.width - group.width) / 2;
+            group.y = (frame.height - group.height) / 2;
+        } else {
+             console.warn("Icon content group has zero width or height, skipping resize/centering.");
+             // Fallback centering for empty/invalid groups
+             group.x = (frame.width - group.width) / 2;
+             group.y = (frame.height - group.height) / 2;
+        }
+    }
+    
+    // Select the created frame with the icon
+    figma.currentPage.selection = [frame];
+    figma.viewport.scrollAndZoomIntoView([frame]);
+    
+    return frame.id;
+  } catch (error) {
+    console.error('Error creating icon:', error);
+    throw new Error(`Failed to create icon: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// Function to create a border line box or button
+async function createBorderBox(
+  position: {x: number, y: number},
+  size: {width: number, height: number},
+  options: {
+    type: 'box' | 'button',
+    borderColor?: {r: number, g: number, b: number},
+    borderWidth?: number,
+    fillColor?: {r: number, g: number, b: number},
+    cornerRadius?: number,
+    text?: string,
+    textColor?: {r: number, g: number, b: number},
+    fontSize?: number,
+    fontFamily?: string
+  }
+): Promise<string> {
+  try {
+    console.log(`Creating ${options.type} at position:`, position);
+    
+    // Create a frame
+    const frame = figma.createFrame();
+    frame.name = options.type === 'button' ? 'Button' : 'Border Box';
+    frame.x = position.x;
+    frame.y = position.y;
+    frame.resize(size.width, size.height);
+    
+    // Set corner radius if provided
+    if (options.cornerRadius !== undefined) {
+      frame.cornerRadius = options.cornerRadius;
+    }
+    
+    // Set fill color if provided
+    if (options.fillColor) {
+      const rgbColor = { r: options.fillColor.r, g: options.fillColor.g, b: options.fillColor.b };
+      const solidPaint: SolidPaint = { type: 'SOLID', color: rgbColor };
+      frame.fills = [solidPaint];
+    } else {
+      // Make the frame background transparent
+      frame.fills = [];
+    }
+    
+    // Set border color and width if provided
+    if (options.borderColor) {
+      const rgbColor = { r: options.borderColor.r, g: options.borderColor.g, b: options.borderColor.b };
+      const solidPaint: SolidPaint = { type: 'SOLID', color: rgbColor };
+      frame.strokes = [solidPaint];
+      frame.strokeWeight = options.borderWidth || 1;
+    }
+    
+    // Add text if provided
+    if (options.text) {
+      const textNode = figma.createText();
+      
+      // Load font
+      let actualFontFamily = options.fontFamily || DEFAULT_FONT;
+      try {
+        await figma.loadFontAsync({ family: actualFontFamily, style: "Regular" });
+      } catch (fontError) {
+        console.warn(`Failed to load ${actualFontFamily} Regular, falling back to Inter:`, fontError);
+        actualFontFamily = DEFAULT_FONT;
+        await figma.loadFontAsync({ family: DEFAULT_FONT, style: "Regular" });
+      }
+      
+      // Set text properties
+      textNode.fontName = { family: actualFontFamily, style: "Regular" };
+      textNode.characters = options.text;
+      textNode.fontSize = options.fontSize || 16;
+      
+      // Set text color if provided
+      if (options.textColor) {
+        const rgbColor = { r: options.textColor.r, g: options.textColor.g, b: options.textColor.b };
+        const solidPaint: SolidPaint = { type: 'SOLID', color: rgbColor };
+        textNode.fills = [solidPaint];
+      }
+      
+      // Center the text in the frame
+      textNode.textAlignHorizontal = 'CENTER';
+      textNode.textAlignVertical = 'CENTER';
+      textNode.resize(frame.width, frame.height); // Make text node same size as frame for centering
+      textNode.x = 0; // Position relative to frame
+      textNode.y = 0; // Position relative to frame
+      frame.appendChild(textNode);
+      
+      // Reset frame layout mode if we added text
+      // frame.layoutMode = 'VERTICAL';
+      // frame.primaryAxisAlignItems = 'CENTER';
+      // frame.counterAxisAlignItems = 'CENTER';
+    }
+    
+    // Select the created frame
+    figma.currentPage.selection = [frame];
+    figma.viewport.scrollAndZoomIntoView([frame]);
+    
+    return frame.id;
+  } catch (error) {
+    console.error('Error creating border box:', error);
+    throw new Error(`Failed to create border box: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// Function to draw a line
+async function drawLine(
+  start: {x: number, y: number},
+  end: {x: number, y: number},
+  color?: {r: number, g: number, b: number},
+  thickness: number = 1
+): Promise<string> {
+  try {
+    console.log(`Drawing line from (${start.x}, ${start.y}) to (${end.x}, ${end.y})`);
+    const line = figma.createLine();
+    
+    // Set line coordinates
+    line.x = start.x;
+    line.y = start.y;
+    // Adjust the endpoint relative to the start point for the line's internal coordinate system
+    line.resize(end.x - start.x, end.y - start.y);
+    
+    // Set line color
+    const rgbColor = color ? { r: color.r, g: color.g, b: color.b } : { r: 0, g: 0, b: 0 }; // Default black
+    const solidPaint: SolidPaint = { type: 'SOLID', color: rgbColor };
+    line.strokes = [solidPaint];
+    line.strokeWeight = thickness;
+    
+    // Select the created line
+    figma.currentPage.selection = [line];
+    figma.viewport.scrollAndZoomIntoView([line]);
+    
+    return line.id;
+  } catch (error) {
+    console.error('Error drawing line:', error);
+    throw new Error(`Failed to draw line: ${error instanceof Error ? error.message : String(error)}`);
+  }
 } 
