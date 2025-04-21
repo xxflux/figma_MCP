@@ -81,7 +81,7 @@ const FIGMA_API_BASE_URL = 'https://api.figma.com/v1';
 app.use(cors());
 
 // Parse JSON bodies
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));  // Increased limit for image data
 
 // We store sessions by sessionId => { sseRes, initialized: boolean }
 const sessions = new Map();
@@ -173,6 +173,138 @@ const sendOperationToPlugin = (operation) => {
 // Health check endpoint
 app.get('/', (req, res) => {
   return res.json({ status: 'Figma MCP Server is running' });
+});
+
+/*
+|--------------------------------------------------------------------------
+| LLM API Proxy endpoints to solve CORS issues
+|--------------------------------------------------------------------------
+*/
+app.post('/api/proxy/openai', async (req, res) => {
+  try {
+    console.log('[LLM Proxy] OpenAI request received');
+    
+    const { apiKey, model, messages, temperature, max_tokens } = req.body;
+    
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Missing API key' });
+    }
+    
+    const url = 'https://api.openai.com/v1/chat/completions';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model || 'gpt-3.5-turbo',
+        messages,
+        temperature: temperature || 0.7,
+        max_tokens: max_tokens || 4000
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('[LLM Proxy] OpenAI API error:', data);
+      return res.status(response.status).json({
+        error: data.error || { message: 'Unknown OpenAI API error' }
+      });
+    }
+    
+    console.log('[LLM Proxy] OpenAI request successful');
+    return res.json(data);
+  } catch (error) {
+    console.error('[LLM Proxy] Error proxying OpenAI request:', error);
+    return res.status(500).json({ error: { message: `Proxy server error: ${error.message}` } });
+  }
+});
+
+app.post('/api/proxy/claude', async (req, res) => {
+  try {
+    console.log('[LLM Proxy] Claude request received');
+    
+    const { apiKey, model, messages, temperature, max_tokens } = req.body;
+    
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Missing API key' });
+    }
+    
+    const url = 'https://api.anthropic.com/v1/messages';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: model || 'claude-3-opus-20240229',
+        messages,
+        temperature: temperature || 0.7,
+        max_tokens: max_tokens || 4000
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('[LLM Proxy] Claude API error:', data);
+      return res.status(response.status).json({
+        error: data.error || { message: 'Unknown Claude API error' }
+      });
+    }
+    
+    console.log('[LLM Proxy] Claude request successful');
+    return res.json(data);
+  } catch (error) {
+    console.error('[LLM Proxy] Error proxying Claude request:', error);
+    return res.status(500).json({ error: { message: `Proxy server error: ${error.message}` } });
+  }
+});
+
+app.post('/api/proxy/gemini', async (req, res) => {
+  try {
+    console.log('[LLM Proxy] Gemini request received');
+    
+    const { apiKey, contents, generationConfig } = req.body;
+    
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Missing API key' });
+    }
+    
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents,
+        generationConfig: generationConfig || {
+          temperature: 0.7,
+          maxOutputTokens: 4000
+        }
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('[LLM Proxy] Gemini API error:', data);
+      return res.status(response.status).json({
+        error: data.error || { message: 'Unknown Gemini API error' }
+      });
+    }
+    
+    console.log('[LLM Proxy] Gemini request successful');
+    return res.json(data);
+  } catch (error) {
+    console.error('[LLM Proxy] Error proxying Gemini request:', error);
+    return res.status(500).json({ error: { message: `Proxy server error: ${error.message}` } });
+  }
 });
 
 /*

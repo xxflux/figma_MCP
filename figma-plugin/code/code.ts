@@ -7,10 +7,65 @@ const DEFAULT_FONT = "Inter";
 const WEBSOCKET_SERVER_URL = "ws://localhost:8080";
 
 // Show UI window for WebSocket communication
-figma.showUI(__html__, { width: 400, height: 350 });
+figma.showUI(__html__, { width: 400, height: 600 });
 
 // WebSocket connection is managed in the UI thread
 figma.ui.postMessage({ type: 'connect-to-server', serverUrl: WEBSOCKET_SERVER_URL });
+
+// Define LLM service interfaces
+interface OpenAICompletionRequest {
+  model: string;
+  messages: Array<{
+    role: string;
+    content: string | Array<{
+      type: string;
+      text?: string;
+      image_url?: string;
+    }>;
+  }>;
+  temperature?: number;
+  max_tokens?: number;
+}
+
+interface ClaudeCompletionRequest {
+  model: string;
+  messages: Array<{
+    role: string;
+    content: Array<{
+      type: string;
+      text?: string;
+      source?: {
+        type: string;
+        media_type: string;
+        data: string;
+      };
+    }>;
+  }>;
+  temperature?: number;
+  max_tokens?: number;
+}
+
+interface GeminiCompletionRequest {
+  contents: Array<{
+    role: string;
+    parts: Array<{
+      text?: string;
+      inline_data?: {
+        mime_type: string;
+        data: string;
+      };
+    }>;
+  }>;
+  generationConfig?: {
+    temperature?: number;
+    maxOutputTokens?: number;
+  };
+}
+
+// Define a variable to track if retries should be cancelled
+let shouldCancelRetries = false;
+// Server URL for API proxy - will be set from UI
+let serverBaseUrl = 'http://localhost:3000';
 
 // Handle messages from the UI thread
 figma.ui.onmessage = async (msg) => {
@@ -19,6 +74,34 @@ figma.ui.onmessage = async (msg) => {
   try {
     // Handle different operation types
     switch (msg.type) {
+      case 'cancel-retries':
+        shouldCancelRetries = true;
+        figma.ui.postMessage({ 
+          type: 'log-message', 
+          message: 'Retry cancellation request received',
+          messageType: 'info'
+        });
+        break;
+        
+      case 'set-server-url':
+        serverBaseUrl = msg.serverUrl || 'http://localhost:3000';
+        figma.ui.postMessage({ 
+          type: 'log-message', 
+          message: `Server URL set to: ${serverBaseUrl}`,
+          messageType: 'info'
+        });
+        break;
+        
+      case 'generate-design-standalone':
+        shouldCancelRetries = false; // Reset for new request
+        await generateDesignWithLLM(
+          msg.llmService, 
+          msg.apiKey, 
+          msg.prompt, 
+          msg.images || []
+        );
+        break;
+        
       case 'create-rectangle':
         await createRectangle(msg.position, msg.size, msg.color);
         break;
@@ -211,24 +294,553 @@ figma.ui.onmessage = async (msg) => {
       }
         
       default:
-        console.error(`Unknown operation type: ${msg.type}`);
+        console.log("Unknown message type:", msg.type);
     }
     
-    // Notify UI that operation is complete
+    // Send generic operation completion message
+    // This is for operations that don't send their own completion messages
     figma.ui.postMessage({ 
       type: 'operation-completed', 
-      originalOperation: msg.type,
-      status: 'success'
+      status: 'success',
+      originalOperation: msg.type
     });
-  } catch (error: unknown) {
-    console.error('Error executing operation:', error);
+    
+  } catch (error) {
+    console.error("Error handling message:", error);
+    
+    // Send generic error message
     figma.ui.postMessage({ 
       type: 'operation-error', 
       originalOperation: msg.type,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 };
+
+// Generate design with LLM API
+async function generateDesignWithLLM(
+  llmService: string, 
+  apiKey: string, 
+  prompt: string, 
+  images: Array<{name: string, type: string, data: string}>
+): Promise<void> {
+  try {
+    figma.ui.postMessage({ 
+      type: 'log-message', 
+      message: `Generating design with ${llmService}...`,
+      messageType: 'info'
+    });
+    
+    let response;
+    
+    // Handle different OpenAI models or other LLM services
+    if (llmService.startsWith('openai-')) {
+      const modelName = llmService.replace('openai-', '');
+      response = await callOpenAI(apiKey, prompt, images, modelName);
+    } else if (llmService === 'claude') {
+      response = await callClaude(apiKey, prompt, images);
+    } else if (llmService === 'gemini') {
+      response = await callGemini(apiKey, prompt, images);
+    } else {
+      throw new Error(`Unsupported LLM service: ${llmService}`);
+    }
+    
+    if (!response) {
+      throw new Error('Failed to get response from LLM service');
+    }
+    
+    figma.ui.postMessage({ 
+      type: 'log-message', 
+      message: 'AI response received, generating design...',
+      messageType: 'info'
+    });
+    
+    // Process and execute design commands
+    await executeDesignPlan(response);
+    
+    figma.ui.postMessage({ 
+      type: 'operation-completed', 
+      status: 'success',
+      originalOperation: 'generate-design-standalone',
+      message: 'Design generated successfully'
+    });
+  } catch (error) {
+    console.error('Error generating design:', error);
+    figma.ui.postMessage({ 
+      type: 'operation-error', 
+      originalOperation: 'generate-design-standalone',
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+// Call OpenAI API with rate limiting and exponential backoff
+async function callOpenAI(apiKey: string, prompt: string, images: Array<{name: string, type: string, data: string}>, modelName: string): Promise<string> {
+  // Maximum number of retry attempts
+  const MAX_RETRIES = 5;
+  // Initial delay in milliseconds (1 second)
+  const INITIAL_RETRY_DELAY = 1000;
+  
+  // Prepare request data outside the retry loop to avoid repeating this work
+  const messages: Array<any> = [];
+  const supportsImages = modelName === 'gpt-4-vision-preview';
+  
+  // Add system message
+  messages.push({
+    role: 'system', 
+    content: `You are a design assistant that creates UI designs in Figma. 
+You will output a JSON array of design operations that will be executed in Figma to create the design.
+Only use the following operations that the Figma plugin supports:
+- create-rectangle: Creates a rectangle with position, size, and color
+- create-text: Creates text with position, text content, font size, color
+- create-icon: Creates an icon with name, SVG data, position, size, color
+- create-border-box: Creates a box with border, position, size, options
+- draw-line: Draws a line from start to end position
+Your response should be ONLY a valid JSON array of operations like this:
+[
+  {
+    "type": "create-rectangle",
+    "position": {"x": 100, "y": 100},
+    "size": {"width": 200, "height": 100},
+    "color": {"r": 0.8, "g": 0.1, "b": 0.2}
+  },
+  {
+    "type": "create-text",
+    "text": "Hello World",
+    "position": {"x": 120, "y": 130},
+    "fontSize": 24,
+    "color": {"r": 0, "g": 0, "b": 0}
+  }
+]
+Do not include any explanations or markdown in your response, just the JSON array.`
+  });
+  
+  // Build user message with images if supported
+  if (images && images.length > 0 && supportsImages) {
+    const content: Array<any> = [{ type: 'text', text: prompt }];
+    
+    // Add images to content
+    for (const image of images) {
+      content.push({
+        type: 'image_url',
+        image_url: {
+          url: image.data,
+          detail: 'high'
+        }
+      });
+    }
+    
+    messages.push({ role: 'user', content });
+  } else {
+    // If images are provided but model doesn't support them, add a note
+    let userPrompt = prompt;
+    if (images && images.length > 0 && !supportsImages) {
+      figma.ui.postMessage({ 
+        type: 'log-message', 
+        message: `Warning: ${modelName} doesn't support image input. Proceeding with text-only prompt.`,
+        messageType: 'error'
+      });
+      userPrompt = `${prompt}\n\nNote: User uploaded ${images.length} reference image(s), but they cannot be processed with this model.`;
+    }
+    messages.push({ role: 'user', content: userPrompt });
+  }
+  
+  const requestData: OpenAICompletionRequest = {
+    model: modelName,
+    messages,
+    temperature: 0.7,
+    max_tokens: 4000
+  };
+
+  // Retry loop with exponential backoff
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Check if retries should be cancelled
+      if (shouldCancelRetries && attempt > 1) {
+        figma.ui.postMessage({ 
+          type: 'log-message', 
+          message: 'Retries cancelled by user',
+          messageType: 'warning'
+        });
+        throw new Error('OpenAI API request cancelled by user');
+      }
+      
+      // Use the proxy endpoint for CORS-free OpenAI access
+      const url = `${serverBaseUrl}/api/proxy/openai`;
+      
+      // Log attempt number if it's a retry
+      if (attempt > 1) {
+        figma.ui.postMessage({ 
+          type: 'log-message', 
+          message: `Retry attempt ${attempt}/${MAX_RETRIES} for OpenAI request...`,
+          messageType: 'info'
+        });
+      }
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          apiKey,
+          model: modelName,
+          messages,
+          temperature: requestData.temperature,
+          max_tokens: requestData.max_tokens
+        })
+      });
+      
+      // If the request was successful, return the response
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+      
+      // Parse error response
+      const errorText = await response.text();
+      let errorJson;
+      try {
+        errorJson = JSON.parse(errorText);
+      } catch (e) {
+        errorJson = null;
+      }
+      
+      // Handle rate limiting (429) errors specifically
+      if (response.status === 429) {
+        // Get retry-after header if available
+        const retryAfter = response.headers.get('retry-after');
+        let delayMs = 0;
+        
+        if (retryAfter) {
+          // If retry-after is provided, use that (it's in seconds)
+          delayMs = parseInt(retryAfter) * 1000;
+        } else {
+          // Otherwise use exponential backoff
+          delayMs = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+        }
+        
+        // Cap the maximum delay at 60 seconds
+        delayMs = Math.min(delayMs, 60000);
+        
+        figma.ui.postMessage({ 
+          type: 'log-message', 
+          message: `Rate limit exceeded. Waiting ${delayMs/1000} seconds before retrying...`,
+          messageType: 'warning'
+        });
+        
+        // If this is not the last attempt, wait and then continue to next iteration
+        if (attempt < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        }
+      }
+      
+      // For non-429 errors or if this was the last retry attempt
+      let errorMessage = `OpenAI API error: ${response.status}`;
+      
+      if (errorJson && errorJson.error) {
+        errorMessage += ` - ${errorJson.error.type || ''}: ${errorJson.error.message || 'Unknown error'}`;
+        
+        // Provide specific guidance for common errors
+        if (errorJson.error.code === 'insufficient_quota') {
+          errorMessage += `. You've exceeded your current quota. Please check your plan and billing details.`;
+        }
+      }
+      
+      throw new Error(errorMessage);
+    } catch (error) {
+      // If this is the last attempt, throw the error
+      if (attempt === MAX_RETRIES) {
+        console.error('Error calling OpenAI after max retries:', error);
+        throw error;
+      }
+      
+      // For network errors (not API errors), also retry with backoff
+      if (!(error instanceof Error && error.message.includes('OpenAI API error'))) {
+        const delayMs = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+        
+        figma.ui.postMessage({ 
+          type: 'log-message', 
+          message: `Network error occurred. Retrying in ${delayMs/1000} seconds...`,
+          messageType: 'warning'
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  // This should never be reached due to the throw in the final iteration,
+  // but TypeScript requires a return statement
+  throw new Error('Failed to get response from OpenAI after maximum retries');
+}
+
+// Call Claude API
+async function callClaude(apiKey: string, prompt: string, images: Array<{name: string, type: string, data: string}>): Promise<string> {
+  try {
+    figma.ui.postMessage({ 
+      type: 'log-message', 
+      message: 'Calling Claude API via proxy server...',
+      messageType: 'info'
+    });
+    
+    const systemPrompt = `You are a design assistant that creates UI designs in Figma. 
+You will output a JSON array of design operations that will be executed in Figma to create the design.
+Only use the following operations that the Figma plugin supports:
+- create-rectangle: Creates a rectangle with position, size, and color
+- create-text: Creates text with position, text content, font size, color
+- create-icon: Creates an icon with name, SVG data, position, size, color
+- create-border-box: Creates a box with border, position, size, options
+- draw-line: Draws a line from start to end position
+Your response should be ONLY a valid JSON array of operations like this:
+[
+  {
+    "type": "create-rectangle",
+    "position": {"x": 100, "y": 100},
+    "size": {"width": 200, "height": 100},
+    "color": {"r": 0.8, "g": 0.1, "b": 0.2}
+  },
+  {
+    "type": "create-text",
+    "text": "Hello World",
+    "position": {"x": 120, "y": 130},
+    "fontSize": 24,
+    "color": {"r": 0, "g": 0, "b": 0}
+  }
+]
+Do not include any explanations or markdown in your response, just the JSON array.`;
+    
+    const content: Array<any> = [
+      { type: 'text', text: systemPrompt + '\n\n' + prompt }
+    ];
+    
+    // Add images if provided
+    for (const image of images) {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: image.type,
+          data: image.data.split(',')[1] // Remove data URL prefix
+        }
+      });
+    }
+    
+    const messages = [
+      { role: 'user', content }
+    ];
+    
+    // Use the proxy endpoint for CORS-free Claude access
+    const url = `${serverBaseUrl}/api/proxy/claude`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        apiKey,
+        model: 'claude-3-opus-20240229',
+        messages,
+        temperature: 0.7,
+        max_tokens: 4000
+      })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Claude API error: ${errorData.error?.message || response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.content[0].text;
+  } catch (error) {
+    console.error('Error calling Claude:', error);
+    throw error;
+  }
+}
+
+// Call Gemini API
+async function callGemini(apiKey: string, prompt: string, images: Array<{name: string, type: string, data: string}>): Promise<string> {
+  try {
+    figma.ui.postMessage({ 
+      type: 'log-message', 
+      message: 'Calling Gemini API via proxy server...',
+      messageType: 'info'
+    });
+    
+    const systemPrompt = `You are a design assistant that creates UI designs in Figma. 
+You will output a JSON array of design operations that will be executed in Figma to create the design.
+Only use the following operations that the Figma plugin supports:
+- create-rectangle: Creates a rectangle with position, size, and color
+- create-text: Creates text with position, text content, font size, color
+- create-icon: Creates an icon with name, SVG data, position, size, color
+- create-border-box: Creates a box with border, position, size, options
+- draw-line: Draws a line from start to end position
+Your response should be ONLY a valid JSON array of operations like this:
+[
+  {
+    "type": "create-rectangle",
+    "position": {"x": 100, "y": 100},
+    "size": {"width": 200, "height": 100},
+    "color": {"r": 0.8, "g": 0.1, "b": 0.2}
+  },
+  {
+    "type": "create-text",
+    "text": "Hello World",
+    "position": {"x": 120, "y": 130},
+    "fontSize": 24,
+    "color": {"r": 0, "g": 0, "b": 0}
+  }
+]
+Do not include any explanations or markdown in your response, just the JSON array.`;
+    
+    const parts: Array<{text?: string, inline_data?: {mime_type: string, data: string}}> = [
+      { text: systemPrompt + '\n\n' + prompt }
+    ];
+    
+    // Add images if provided
+    for (const image of images) {
+      parts.push({
+        inline_data: {
+          mime_type: image.type,
+          data: image.data.split(',')[1] // Remove data URL prefix
+        }
+      });
+    }
+    
+    const contents = [
+      { role: 'user', parts }
+    ];
+    
+    // Use the proxy endpoint for CORS-free Gemini access
+    const url = `${serverBaseUrl}/api/proxy/gemini`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        apiKey,
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 4000
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.candidates[0].content.parts[0].text;
+  } catch (error) {
+    console.error('Error calling Gemini:', error);
+    throw error;
+  }
+}
+
+// Execute design plan from LLM output
+async function executeDesignPlan(responseText: string): Promise<void> {
+  try {
+    // Clean up the response text to ensure it's valid JSON
+    let cleanedText = responseText.trim();
+    
+    // If response is wrapped in code blocks, extract just the JSON
+    if (cleanedText.startsWith('```') && cleanedText.endsWith('```')) {
+      cleanedText = cleanedText.slice(cleanedText.indexOf('\n') + 1, cleanedText.lastIndexOf('```')).trim();
+    }
+    
+    // If there's still a JSON marker at the start, remove it
+    if (cleanedText.startsWith('```json')) {
+      cleanedText = cleanedText.slice(7).trim();
+    }
+    
+    const operations = JSON.parse(cleanedText);
+    
+    if (!Array.isArray(operations)) {
+      throw new Error('Response is not a valid array of operations');
+    }
+    
+    figma.ui.postMessage({ 
+      type: 'log-message', 
+      message: `Executing ${operations.length} design operations...`,
+      messageType: 'info'
+    });
+    
+    // Execute each operation sequentially
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i];
+      figma.ui.postMessage({ 
+        type: 'log-message', 
+        message: `Operation ${i+1}/${operations.length}: ${op.type}`,
+        messageType: 'info'
+      });
+      
+      switch (op.type) {
+        case 'create-rectangle':
+          await createRectangle(op.position, op.size, op.color);
+          break;
+          
+        case 'create-text':
+          await createText(
+            op.text, 
+            op.position, 
+            op.fontSize, 
+            op.color, 
+            op.fontFamily || DEFAULT_FONT,
+            op.resizeMode || 'AUTO_WIDTH'
+          );
+          break;
+          
+        case 'create-icon':
+          await createIcon(
+            op.iconName,
+            op.svgData,
+            op.position,
+            op.size || 24,
+            op.color,
+            op.strokeWidth || 2
+          );
+          break;
+          
+        case 'create-border-box':
+          await createBorderBox(
+            op.position,
+            op.size,
+            op.options
+          );
+          break;
+          
+        case 'draw-line':
+          await drawLine(
+            op.start,
+            op.end,
+            op.color,
+            op.thickness || 1
+          );
+          break;
+          
+        default:
+          console.warn(`Unsupported operation type: ${op.type}`);
+      }
+    }
+    
+    figma.ui.postMessage({ 
+      type: 'log-message', 
+      message: 'All design operations executed successfully',
+      messageType: 'info'
+    });
+  } catch (error) {
+    console.error('Error executing design plan:', error);
+    throw new Error(`Failed to execute design plan: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 // Function to list available fonts in Figma
 async function listAvailableFonts(): Promise<void> {

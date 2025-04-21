@@ -65,6 +65,9 @@
     .log .message-error {
       color: #ff6a6a;
     }
+    .log .message-warning {
+      color: #ffcc00;
+    }
     h3 {
       margin: 8px 0 5px 0;
       font-size: 13px;
@@ -75,30 +78,218 @@
       display: flex;
       background-color: #e0e0e0;
     }
-    input {
-      flex: 1;
+    input, select, textarea, button {
       padding: 6px;
       font-size: 11px;
       border: 1px solid #ccc;
       border-radius: 4px;
     }
+    input, textarea, select {
+      flex: 1;
+    }
+    button {
+      background-color: #18A0FB;
+      color: white;
+      border: none;
+      cursor: pointer;
+      padding: 8px 16px;
+    }
+    button:hover {
+      background-color: #0D8DE3;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
     .disabled {
       opacity: 0.5;
       pointer-events: none;
     }
+    .hidden {
+      display: none;
+    }
+    .tab-container {
+      display: flex;
+      margin-bottom: 10px;
+    }
+    .tab {
+      flex: 1;
+      text-align: center;
+      padding: 8px;
+      background-color: #333;
+      color: #fff;
+      cursor: pointer;
+      border-radius: 4px 4px 0 0;
+      margin-right: 2px;
+    }
+    .tab.active {
+      background-color: #18A0FB;
+    }
+    .tab-content {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .tab-content.active {
+      display: flex;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .form-group label {
+      font-weight: bold;
+      color: #e0e0e0;
+    }
+    .image-preview {
+      max-width: 100%;
+      max-height: 100px;
+      margin-top: 4px;
+      border-radius: 4px;
+      object-fit: contain;
+    }
+    .preview-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .upload-btn-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+    }
+    .upload-btn-wrapper input[type=file] {
+      font-size: 100px;
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .status-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-left: 5px;
+      background-color: #666;
+    }
+    .status-badge.rate-limited {
+      background-color: #ff9900;
+      animation: pulse 1.5s infinite;
+    }
+    .rate-limit-info {
+      font-size: 10px;
+      margin-top: 8px;
+      color: #999;
+      display: none;
+    }
+    .rate-limit-info.visible {
+      display: block;
+    }
+    .server-config {
+      background-color: #f8f8f8;
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+    }
+    .server-config h4 {
+      margin-top: 0;
+      margin-bottom: 5px;
+    }
   </style>
 </head>
 <body>
-  <div id="status">
-    <span id="status-text">Waiting to connect to MCP server...</span>
+  <div class="container">
+    <h2>Figma MCP Design Generator</h2>
+    <div class="tabs">
+      <div class="tab active" data-tab="cursor">Cursor MCP Mode</div>
+      <div class="tab" data-tab="standalone">Standalone Mode</div>
+    </div>
+    
+    <div class="connection-status">
+      <span id="status" class="status-indicator disconnected"></span>
+      <span id="status-text">Disconnected</span>
+    </div>
+    
+    <div class="server-config">
+      <h4>Server Connection</h4>
+      <div class="form-group">
+        <input type="text" id="server-url" placeholder="WebSocket URL (ws://localhost:8080)" value="ws://localhost:8080">
+        <button id="connect-btn">Connect</button>
+      </div>
+      <div class="form-group">
+        <input type="text" id="proxy-url" placeholder="API Proxy URL (http://localhost:3000)" value="http://localhost:3000">
+        <button id="set-proxy-btn">Set Proxy URL</button>
+      </div>
+    </div>
+
+    <div id="rate-limit-info" class="rate-limit-info">
+      Using automatic retry with exponential backoff for rate limited requests.
+      <div style="margin-top: 4px;">
+        <span>Free tier users often hit rate limits. Consider:</span>
+        <ul style="margin: 4px 0 0 15px; padding: 0;">
+          <li>Adding a payment method in your OpenAI account</li>
+          <li>Using GPT-3.5 instead of GPT-4</li>
+          <li>Waiting a minute before retrying</li>
+        </ul>
+        <button id="cancel-retries" style="margin-top: 5px;">Cancel Retries</button>
+      </div>
+    </div>
+  
+    <div class="tab-container">
+      <div class="tab active" data-tab="cursor">Using Cursor</div>
+      <div class="tab" data-tab="standalone">Standalone Mode</div>
   </div>
   
+    <!-- Cursor Mode Tab Content -->
+    <div class="tab-content active" id="cursor-tab">
   <div class="server-input">
     <input type="text" id="server-url" value="ws://localhost:8080" placeholder="WebSocket URL" disabled>
+      </div>
+    </div>
+  
+    <!-- Standalone Mode Tab Content -->
+    <div class="tab-content" id="standalone-tab">
+      <div class="form-group">
+        <label for="llm-service">LLM Service</label>
+        <select id="llm-service">
+          <option value="openai-gpt-3.5-turbo">OpenAI - GPT-3.5 Turbo (Recommended)</option>
+          <option value="openai-gpt-4">OpenAI - GPT-4</option>
+          <option value="openai-gpt-4-vision-preview">OpenAI - GPT-4 Vision</option>
+          <option value="claude">Claude (via Server Proxy)</option>
+          <option value="gemini">Gemini (via Server Proxy)</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="api-key">API Key</label>
+        <input type="password" id="api-key" placeholder="Enter your API key">
+      </div>
+      
+      <div class="form-group">
+        <label for="prompt">Design Prompt</label>
+        <textarea id="prompt" rows="4" placeholder="Describe the design you want to create..."></textarea>
+      </div>
+      
+      <div class="form-group">
+        <label>Reference Images</label>
+        <div class="upload-btn-wrapper">
+          <button>Upload Images</button>
+          <input type="file" id="image-upload" multiple accept="image/*">
+        </div>
+        <div class="preview-container" id="image-previews"></div>
+      </div>
+      
+      <button id="generate-design">Generate Design</button>
   </div>
   
   <h3>Console log:</h3>
   <div id="log" class="log"></div>
+  </div>
 
   <script>
     let ws;
@@ -106,12 +297,157 @@
     const statusText = document.getElementById('status-text');
     const log = document.getElementById('log');
     const serverUrlInput = document.getElementById('server-url');
+    const proxyUrlInput = document.getElementById('proxy-url');
+    const connectBtn = document.getElementById('connect-btn');
+    const setProxyBtn = document.getElementById('set-proxy-btn');
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const llmServiceSelect = document.getElementById('llm-service');
+    const apiKeyInput = document.getElementById('api-key');
+    const promptInput = document.getElementById('prompt');
+    const imageUpload = document.getElementById('image-upload');
+    const imagePreviews = document.getElementById('image-previews');
+    const generateDesignBtn = document.getElementById('generate-design');
+    const rateLimitBadge = document.getElementById('rate-limit-badge');
+    const rateLimitInfo = document.getElementById('rate-limit-info');
+    const cancelRetriesBtn = document.getElementById('cancel-retries');
     
     let serverUrl = 'ws://localhost:8080';
+    let proxyUrl = 'http://localhost:3000';
     let connectionCheckInterval;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
     let reconnectTimeout;
+    let currentMode = 'cursor'; // 'cursor' or 'standalone'
+    let uploadedImages = [];
+    let isRateLimited = false;
+    let shouldCancelRetries = false;
+
+    // Connect button handler
+    connectBtn.addEventListener('click', () => {
+      serverUrl = serverUrlInput.value;
+      reconnectAttempts = 0;
+      connectWebSocket(serverUrl);
+    });
+    
+    // Set proxy URL button handler
+    setProxyBtn.addEventListener('click', () => {
+      proxyUrl = proxyUrlInput.value;
+      logMessage(`API proxy URL set to: ${proxyUrl}`, 'info');
+      
+      // Send to plugin code
+      parent.postMessage({
+        pluginMessage: {
+          type: 'set-server-url',
+          serverUrl: proxyUrl
+        }
+      }, '*');
+    });
+
+    // Tab switching
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Update active tab
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        // Show corresponding content
+        const tabName = tab.getAttribute('data-tab');
+        currentMode = tabName;
+        tabContents.forEach(content => {
+          content.classList.remove('active');
+        });
+        document.getElementById(`${tabName}-tab`).classList.add('active');
+        
+        // Log mode change
+        logMessage(`Switched to ${tabName === 'cursor' ? 'Cursor' : 'Standalone'} mode`, 'plugin');
+      });
+    });
+    
+    // LLM service change handler
+    llmServiceSelect.addEventListener('change', () => {
+      const service = llmServiceSelect.value;
+      
+      // Check if model supports images
+      const supportsImages = service === 'openai-gpt-4-vision-preview';
+      
+      // If images are uploaded but model doesn't support images, show warning
+      if (!supportsImages && uploadedImages.length > 0) {
+        logMessage(`Warning: ${service} doesn't support image input. Images will be ignored.`, 'error');
+      }
+    });
+    
+    // Handle image uploads
+    imageUpload.addEventListener('change', (event) => {
+      const files = event.target.files;
+      imagePreviews.innerHTML = '';
+      uploadedImages = [];
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            // Store base64 data
+            uploadedImages.push({
+              name: file.name,
+              type: file.type,
+              data: e.target.result
+            });
+            
+            // Create preview
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.className = 'image-preview';
+            imagePreviews.appendChild(img);
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+      
+      // Check if current model supports images
+      const supportsImages = llmServiceSelect.value === 'openai-gpt-4-vision-preview';
+      if (!supportsImages && files.length > 0) {
+        logMessage(`Warning: ${llmServiceSelect.value} doesn't support image input. Images will be ignored.`, 'error');
+      }
+    });
+    
+    // Generate design in standalone mode
+    generateDesignBtn.addEventListener('click', () => {
+      if (currentMode !== 'standalone') return;
+      
+      const llmService = llmServiceSelect.value;
+      const apiKey = apiKeyInput.value;
+      const prompt = promptInput.value;
+      
+      if (!apiKey) {
+        logMessage('API key is required', 'error');
+        return;
+      }
+      
+      if (!prompt) {
+        logMessage('Design prompt is required', 'error');
+        return;
+      }
+      
+      // Disable the button to prevent multiple requests
+      if (!isRateLimited) {
+        generateDesignBtn.disabled = true;
+      }
+      
+      logMessage(`Generating design with ${llmService}...`, 'plugin');
+      
+      // Send to plugin code
+      parent.postMessage({
+        pluginMessage: {
+          type: 'generate-design-standalone',
+          llmService,
+          apiKey,
+          prompt,
+          images: uploadedImages
+        }
+      }, '*');
+    });
 
     // Listen for messages from the plugin code
     onmessage = (event) => {
@@ -122,11 +458,35 @@
         serverUrlInput.value = serverUrl;
         reconnectAttempts = 0; // Reset reconnect attempts when manually connecting
         connectWebSocket(serverUrl);
+      } else if (msg.type === 'log-message') {
+        // Handle log messages from plugin code
+        logMessage(msg.message, msg.messageType || 'info');
+        
+        // Check for rate limiting messages
+        if (msg.message.includes('Rate limit exceeded') || msg.message.includes('rate limited')) {
+          isRateLimited = true;
+          rateLimitBadge.style.display = 'inline-block';
+          rateLimitBadge.classList.add('rate-limited');
+          rateLimitInfo.classList.add('visible');
+          
+          // Re-enable design button but with warning color
+          if (generateDesignBtn.disabled) {
+            generateDesignBtn.disabled = false;
+            generateDesignBtn.style.backgroundColor = '#ff9900';
+          }
+        } else if (msg.message.includes('Design generated successfully')) {
+          // Reset rate limit status
+          isRateLimited = false;
+          rateLimitBadge.style.display = 'none';
+          rateLimitBadge.classList.remove('rate-limited');
+          rateLimitInfo.classList.remove('visible');
+          generateDesignBtn.style.backgroundColor = '';
+        }
       } else {
         logMessage(`Plugin: ${JSON.stringify(msg)}`, 'plugin');
         
         // If ws is connected, forward the message to server
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (currentMode === 'cursor' && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(msg));
         }
       }
@@ -163,6 +523,8 @@
 
     // Attempt to reconnect to the server
     function attemptReconnect() {
+      if (currentMode !== 'cursor') return;
+      
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
         reconnectTimeout = null;
@@ -190,6 +552,13 @@
 
     // Update connection status UI
     function updateConnectionStatus(state, message) {
+      if (currentMode !== 'cursor') {
+        statusText.textContent = 'Using standalone mode (no server connection needed)';
+        status.className = '';
+        status.classList.add('connected');
+        return;
+      }
+      
       statusText.textContent = message;
       
       // Update status class
@@ -200,124 +569,142 @@
       } else if (state === 'disconnected' || state === 'error') {
         status.classList.add('disconnected');
         serverUrlInput.classList.remove('disabled');
-      } else if (state === 'connecting' || state === 'reconnecting') {
+      } else if (state === 'reconnecting') {
         status.classList.add('reconnecting');
+        serverUrlInput.classList.add('disabled');
       }
+      
+      // Send status to plugin code
+      parent.postMessage({ 
+        pluginMessage: { 
+          type: 'connection-status', 
+          status: state
+        } 
+      }, '*');
+    }
+
+    // Log message to UI
+    function logMessage(message, type = 'info') {
+      const now = new Date();
+      const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+      
+      const logEntry = document.createElement('div');
+      
+      const timestampSpan = document.createElement('span');
+      timestampSpan.className = 'timestamp';
+      timestampSpan.textContent = timestamp;
+      
+      const messageSpan = document.createElement('span');
+      
+      // Apply styling based on message type
+      if (type === 'plugin') {
+        messageSpan.className = 'message-plugin';
+      } else if (type === 'server') {
+        messageSpan.className = 'message-server';
+      } else if (type === 'error') {
+        messageSpan.className = 'message-error';
+      } else if (type === 'warning') {
+        messageSpan.className = 'message-warning';
+      }
+      
+      messageSpan.textContent = message;
+      
+      logEntry.appendChild(timestampSpan);
+      logEntry.appendChild(messageSpan);
+      
+      log.appendChild(logEntry);
+      log.scrollTop = log.scrollHeight; // Auto-scroll to bottom
     }
 
     // Connect to WebSocket server
     function connectWebSocket(url) {
-      try {
-        // Clear existing interval
-        if (connectionCheckInterval) {
-          clearInterval(connectionCheckInterval);
-        }
-        
         // Close existing connection if any
         if (ws) {
           ws.close();
         }
         
+      try {
+        ws = new WebSocket(url);
         updateConnectionStatus('connecting', `Connecting to ${url}...`);
         
-        ws = new WebSocket(url);
-        
-        ws.onopen = () => {
+        ws.onopen = (event) => {
+          logMessage(`Connected to MCP server at ${url}`, 'server');
           updateConnectionStatus('connected', 'Connected to MCP server');
           
           // Send ready message to server
           ws.send(JSON.stringify({ type: 'plugin-ready' }));
-          logMessage('Connected to MCP server', 'server');
-          
-          // Notify plugin code about connection status
-          parent.postMessage({ 
-            pluginMessage: { 
-              type: 'connection-status', 
-              status: 'connected',
-              url: url
-            } 
-          }, '*');
         };
         
         ws.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          logMessage(`Server: ${event.data}`, 'server');
-          
-          // Forward message to plugin code
-          parent.postMessage({ pluginMessage: data }, '*');
-        };
-        
-        ws.onclose = () => {
-          updateConnectionStatus('disconnected', 'Disconnected from MCP server');
-          logMessage('Disconnected from MCP server', 'error');
-          
-          // Notify plugin code about connection status
-          parent.postMessage({ 
-            pluginMessage: { 
-              type: 'connection-status', 
-              status: 'disconnected',
-              url: url
-            } 
-          }, '*');
+          try {
+            const message = JSON.parse(event.data);
+            logMessage(`Server: ${JSON.stringify(message)}`, 'server');
+            
+            // Forward server messages to plugin code
+            parent.postMessage({ pluginMessage: message }, '*');
+          } catch (error) {
+            logMessage(`Error parsing server message: ${error.message}`, 'error');
+          }
         };
         
         ws.onerror = (error) => {
-          updateConnectionStatus('error', 'Error connecting to MCP server');
-          logMessage(`WebSocket error: ${error}`, 'error');
-          
-          // Notify plugin code about connection status
-          parent.postMessage({ 
-            pluginMessage: { 
-              type: 'connection-status', 
-              status: 'error',
-              url: url,
-              error: String(error)
-            } 
-          }, '*');
+          logMessage(`WebSocket error: ${error.message || 'Unknown error'}`, 'error');
+          updateConnectionStatus('error', `Connection error`);
         };
         
-        // Start connection check interval (check every 5 seconds)
-        connectionCheckInterval = setInterval(checkConnectionStatus, 5000);
-        
+        ws.onclose = (event) => {
+          const reason = event.reason || 'Unknown reason';
+          logMessage(`Disconnected from server: ${reason} (code: ${event.code})`, 'error');
+          updateConnectionStatus('disconnected', `Disconnected: ${reason}`);
+        };
       } catch (error) {
-        updateConnectionStatus('error', `Error: ${error.message}`);
-        logMessage(`Error: ${error.message}`, 'error');
-        
-        // Notify plugin code about connection status
-        parent.postMessage({ 
-          pluginMessage: { 
-            type: 'connection-status', 
-            status: 'error',
-            url: url,
-            error: error.message
-          } 
-        }, '*');
+        logMessage(`Failed to create WebSocket: ${error.message}`, 'error');
+        updateConnectionStatus('error', `Failed to create connection`);
       }
     }
 
-    // Add message to log
-    function logMessage(message, type = 'default') {
-      const entry = document.createElement('div');
+    // Start connection status check interval
+    connectionCheckInterval = setInterval(checkConnectionStatus, 2000);
+    
+    // Update status based on current mode
+    updateConnectionStatus(currentMode === 'cursor' ? 'disconnected' : 'standalone', 
+      currentMode === 'cursor' ? 'No connection to server' : 'Using standalone mode');
+
+    // Cancel retries button
+    cancelRetriesBtn.addEventListener('click', () => {
+      shouldCancelRetries = true;
+      logMessage('Cancelling pending retries...', 'warning');
       
-      const timestamp = document.createElement('span');
-      timestamp.className = 'timestamp';
-      timestamp.textContent = `${new Date().toLocaleTimeString()}`;
+      parent.postMessage({
+        pluginMessage: {
+          type: 'cancel-retries'
+        }
+      }, '*');
       
-      const messageSpan = document.createElement('span');
-      messageSpan.className = `message-${type}`;
-      messageSpan.textContent = message;
+      // Reset UI state
+      setTimeout(() => {
+        isRateLimited = false;
+        rateLimitBadge.style.display = 'none';
+        rateLimitBadge.classList.remove('rate-limited');
+        rateLimitInfo.classList.remove('visible');
+        generateDesignBtn.disabled = false;
+        generateDesignBtn.style.backgroundColor = '';
+      }, 500);
+    });
+
+    // Initialize by setting the proxy URL
+    window.onload = () => {
+      // Send proxy URL to plugin code
+      parent.postMessage({
+        pluginMessage: {
+          type: 'set-server-url',
+          serverUrl: proxyUrl
+        }
+      }, '*');
       
-      entry.appendChild(timestamp);
-      entry.appendChild(messageSpan);
-      
-      log.appendChild(entry);
-      log.scrollTop = log.scrollHeight;
-      
-      // Limit log entries to prevent memory issues
-      if (log.children.length > 100) {
-        log.removeChild(log.children[0]);
-      }
-    }
+      // Auto-connect to WebSocket
+      connectWebSocket(serverUrl);
+    };
   </script>
 </body>
 </html> 

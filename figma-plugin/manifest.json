@@ -6,9 +6,23 @@
   "ui": "dist/ui.html",
   "editorType": ["figma"],
   "networkAccess": {
-    "allowedDomains": ["http://localhost:8080", "ws://localhost:8080"],
-    "devAllowedDomains": ["http://localhost:8080", "ws://localhost:8080"],
-    "reasoning": "This plugin needs to communicate with a local MCP server to create and modify design elements based on instructions from Cursor Agent."
+    "allowedDomains": [
+      "http://localhost:8080", 
+      "ws://localhost:8080",
+      "http://localhost:3000",
+      "https://api.openai.com",
+      "https://api.anthropic.com",
+      "https://generativelanguage.googleapis.com"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:8080", 
+      "ws://localhost:8080",
+      "http://localhost:3000",
+      "https://api.openai.com",
+      "https://api.anthropic.com",
+      "https://generativelanguage.googleapis.com"
+    ],
+    "reasoning": "This plugin needs to communicate with a local MCP server via WebSocket and HTTP proxy to create and modify design elements based on instructions from Cursor Agent, or connect to LLM APIs through the proxy server when used in standalone mode."
   },
   "permissions": ["currentuser"],
   "documentAccess": "document",
